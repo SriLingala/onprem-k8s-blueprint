@@ -1,0 +1,27 @@
+apiVersion: v2
+name: platform-addons
+description: |
+  Platform add-ons bundle for on-prem Kubernetes clusters. Installs Argo CD,
+  Prometheus, Grafana, Loki, cert-manager and Ingress NGINX in a single
+  release so all clusters in the estate share the same observability and
+  delivery surface.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+
+dependencies:
+  - name: argo-cd
+    version: 7.6.0
+    repository: https://argoproj.github.io/argo-helm
+  - name: ingress-nginx
+    version: 4.11.2
+    repository: https://kubernetes.github.io/ingress-nginx
+  - name: cert-manager
+    version: v1.15.3
+    repository: https://charts.jetstack.io
+  - name: kube-prometheus-stack
+    version: 62.6.0
+    repository: https://prometheus-community.github.io/helm-charts
+  - name: loki
+    version: 6.15.0
+    repository: https://grafana.github.io/helm-charts

@@ -1,0 +1,50 @@
+# Default values for the platform-addons chart.
+# Tune these per environment via Argo CD ApplicationSet generators.
+
+argo-cd:
+  configs:
+    params:
+      server.insecure: false
+  controller:
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+  repoServer:
+    replicas: 2
+
+ingress-nginx:
+  controller:
+    replicaCount: 2
+    service:
+      type: LoadBalancer
+    metrics:
+      enabled: true
+
+cert-manager:
+  installCRDs: true
+  prometheus:
+    enabled: true
+
+kube-prometheus-stack:
+  grafana:
+    enabled: true
+    persistence:
+      enabled: true
+      size: 5Gi
+  prometheus:
+    prometheusSpec:
+      retention: 15d
+      resources:
+        requests:
+          cpu: 500m
+          memory: 2Gi
+
+loki:
+  loki:
+    auth_enabled: false
+  singleBinary:
+    replicas: 1
+    persistence:
+      enabled: true
+      size: 20Gi
