@@ -1,5 +1,9 @@
 # Default values for the platform-addons chart.
 # Tune these per environment via Argo CD ApplicationSet generators.
+#
+# All workload containers carry both requests AND limits so a runaway
+# component cannot starve the rest of the cluster. Override in lab/edge
+# overlays if you genuinely need lower footprints.
 
 argo-cd:
   configs:
@@ -10,8 +14,27 @@ argo-cd:
       requests:
         cpu: 250m
         memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
   repoServer:
     replicas: 2
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+  server:
+    replicas: 2
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
 
 ingress-nginx:
   controller:
@@ -20,11 +43,55 @@ ingress-nginx:
       type: LoadBalancer
     metrics:
       enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+    # Spread replicas across nodes so a single node loss never takes the
+    # whole ingress fleet down.
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/component: controller
+              topologyKey: kubernetes.io/hostname
 
 cert-manager:
   installCRDs: true
   prometheus:
     enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  webhook:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+  cainjector:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
 
 kube-prometheus-stack:
   grafana:
@@ -32,6 +99,13 @@ kube-prometheus-stack:
     persistence:
       enabled: true
       size: 5Gi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
   prometheus:
     prometheusSpec:
       retention: 15d
@@ -39,12 +113,82 @@ kube-prometheus-stack:
         requests:
           cpu: 500m
           memory: 2Gi
+        limits:
+          cpu: "2"
+          memory: 4Gi
+  alertmanager:
+    alertmanagerSpec:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
 
 loki:
+  # Authenticated by default — anyone with network access to Loki could
+  # otherwise read or write logs across every tenant on the cluster. Edge
+  # overlays that genuinely need a single-tenant install can flip this back
+  # to false explicitly.
   loki:
-    auth_enabled: false
+    auth_enabled: true
+    # Filesystem-backed single-binary deployment is the sane default for
+    # on-prem starter clusters. Swap in object storage (Ceph RGW, MinIO,
+    # S3) by setting loki.storage.type=s3 and the matching s3 block here.
+    commonConfig:
+      replication_factor: 1
+    storage:
+      type: filesystem
+      bucketNames:
+        chunks: chunks
+        ruler: ruler
+        admin: admin
+    schemaConfig:
+      configs:
+        - from: "2024-01-01"
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: loki_index_
+            period: 24h
+
+  # Deployment-mode toggles. We use singleBinary so we get one StatefulSet
+  # instead of the full read/write/backend split — appropriate for the
+  # small-to-medium clusters this blueprint targets.
+  deploymentMode: SingleBinary
+  read:
+    replicas: 0
+  write:
+    replicas: 0
+  backend:
+    replicas: 0
+  chunksCache:
+    enabled: false
+  resultsCache:
+    enabled: false
+  test:
+    enabled: false
+  lokiCanary:
+    enabled: false
+  gateway:
+    enabled: false
+
   singleBinary:
+    # singleBinary + filesystem storage cannot scale past one replica
+    # because there is no shared object store. For HA, switch loki.storage
+    # to s3/azure/gcs (or a Ceph RGW / MinIO endpoint) and bump this to >=2.
+    # The chart enforces this — we keep one replica here as the safe default
+    # so a vanilla install renders and runs without further config.
     replicas: 1
     persistence:
       enabled: true
       size: 20Gi
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi

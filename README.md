@@ -50,16 +50,18 @@ work in [aks-platform](https://github.com/SriLingala/aks-platform).
 
 ```
 onprem-k8s-blueprint/
+├── .github/workflows/         terraform fmt/validate + helm lint on every PR
 ├── terraform/
-│   ├── rke2/                  Terraform skeleton for RKE2 on bare metal or VMs
-│   ├── k3s/                   Terraform skeleton for k3s edge clusters
-│   └── shared/                Variables and outputs shared across both
+│   ├── rke2/                  Terraform module for RKE2 on bare metal or VMs
+│   └── k3s/                   Terraform module for k3s edge clusters
 ├── helm/
 │   └── platform-addons/       Platform add-on chart (same as aks-platform)
 ├── docs/
 │   ├── COMPARISON.md          How on-prem maps to AKS / GKE
 │   ├── AIR-GAPPED.md          Notes for air-gapped operation
-│   └── EDGE.md                Notes for trackside / factory deployment
+│   ├── EDGE.md                Notes for trackside / factory deployment
+│   ├── REMOTE-STATE.md        How to wire a remote Terraform backend on-prem
+│   └── BACKUP.md              etcd snapshots, Velero, restore drills
 └── README.md
 ```
 
@@ -67,20 +69,19 @@ onprem-k8s-blueprint/
 
 ```bash
 cd terraform/rke2
+cp example.tfvars terraform.tfvars   # then edit
 terraform init
-terraform apply -var-file=example.tfvars
+terraform apply
 ```
 
-This provisions a 3-control-plane plus 2-worker RKE2 cluster. Configurable
-to point at any provider that exposes Linux VMs: VMware vSphere, OpenStack,
-Proxmox, bare metal.
+This provisions a 3-control-plane plus 2-worker RKE2 cluster and installs
+the platform add-on baseline (Argo CD, Ingress NGINX, cert-manager,
+kube-prometheus-stack, Loki) plus MetalLB so Services of type LoadBalancer
+get an actual IP. Configurable against any provider that exposes Linux VMs:
+VMware vSphere, OpenStack, Proxmox, bare metal.
 
-Once the cluster is up, the platform add-ons install via GitOps:
-
-```bash
-kubectl apply -f bootstrap/argocd.yaml
-# Argo CD picks up the rest from the helm/ directory
-```
+Once Argo CD is up it can take over reconciliation for everything else from
+this repo's `helm/` directory.
 
 ## Quick start (k3s edge)
 
@@ -89,11 +90,20 @@ is overkill:
 
 ```bash
 cd terraform/k3s
-terraform apply -var-file=edge.tfvars
+
+# Capture the server's SSH host key so the token-capture step verifies it
+# instead of trusting on first use.
+ssh-keyscan <server-ip> > ./known_hosts.edge
+
+cp edge.tfvars terraform.tfvars   # then edit
+terraform init
+terraform apply
 ```
 
 Single k3s server plus N agents. Footprint is around 250 MB RAM for the
-server. Runs comfortably on Raspberry Pi 5 or industrial NUCs.
+server. Runs comfortably on Raspberry Pi 5 or industrial NUCs. The same
+platform add-on baseline as the RKE2 module is installed by default; set
+`install_platform_addons = false` for a bare cluster.
 
 ## Mapping to AKS / GKE
 
@@ -117,11 +127,25 @@ that run hybrid estates do not maintain two mental models.
 The right-hand column is intentionally consistent with the left. That is the
 point: developers do not need to know which cluster their workload lands on.
 
+## Before you run this in production
+
+A blueprint is the wiring, not the whole house. Read these before any
+real workload lands:
+
+- [docs/REMOTE-STATE.md](docs/REMOTE-STATE.md) — wire a remote backend; do
+  not run with local state.
+- [docs/BACKUP.md](docs/BACKUP.md) — etcd snapshots, Velero, and the
+  restore drill cadence the platform team owns.
+- [docs/AIR-GAPPED.md](docs/AIR-GAPPED.md) — registry mirrors, chart
+  rendering, offline RKE2 install.
+
 ## Status
 
-This is a starter skeleton. The Terraform modules are templates rather than
-fully exercised production code. The pattern, the directory layout and the
-add-ons mapping are real and reflect how I would structure this work in a
+This is a starter skeleton. The Terraform modules install RKE2 / k3s plus
+the platform add-on baseline and are CI-validated (`terraform fmt`,
+`terraform validate`, `helm lint`), but the modules have not been exercised
+against every supported provider. The pattern, directory layout and add-on
+mapping are real and reflect how I would structure this work in a
 production setting.
 
 ## Licence

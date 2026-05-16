@@ -1,0 +1,38 @@
+# Terraform
+**/.terraform/
+**/.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+# Local override files — never check these in: they often contain secrets.
+*.auto.tfvars
+*.auto.tfvars.json
+terraform.tfvars
+terraform.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Kubernetes / kubeconfig
+kubeconfig
+kubeconfig.*
+**/kubeconfig
+**/kubeconfig.*
+*.kubeconfig
+
+# SSH / known_hosts captured per environment
+known_hosts
+known_hosts.*
+
+# Helm
+charts/
+*.tgz
+
+# macOS / editors
+.DS_Store
+.vscode/
+.idea/
+*.swp
