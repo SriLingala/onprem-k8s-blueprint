@@ -1,0 +1,18 @@
+dependencies:
+- name: argo-cd
+  repository: https://argoproj.github.io/argo-helm
+  version: 7.6.0
+- name: ingress-nginx
+  repository: https://kubernetes.github.io/ingress-nginx
+  version: 4.11.2
+- name: cert-manager
+  repository: https://charts.jetstack.io
+  version: v1.15.3
+- name: kube-prometheus-stack
+  repository: https://prometheus-community.github.io/helm-charts
+  version: 62.6.0
+- name: loki
+  repository: https://grafana.github.io/helm-charts
+  version: 6.15.0
+digest: sha256:17eb682b5748f81462f6f38201c98b56855593f4e7e4e7521f15ef73b4880ed1
+generated: "2026-05-19T18:12:29.164195+01:00"

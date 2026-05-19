@@ -2,9 +2,9 @@
 # Copy to `terraform.tfvars` and adjust to your edge site.
 #
 # Usage:
-#   # 1. Capture the server's SSH host key first so the token capture step
-#   #    can verify it instead of trusting on first use:
-#   ssh-keyscan 10.20.30.40 > ./known_hosts.edge
+#   # 1. Capture every node's SSH host key first so bootstrap SSH verifies
+#   #    hosts instead of trusting on first use:
+#   for ip in 10.20.30.40 10.20.30.41 10.20.30.42; do ssh-keyscan "$ip"; done > ./known_hosts.edge
 #
 #   # 2. Apply:
 #   terraform init

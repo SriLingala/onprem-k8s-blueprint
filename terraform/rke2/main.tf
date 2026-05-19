@@ -20,10 +20,6 @@ terraform {
       source  = "hashicorp/null"
       version = "~> 3.2"
     }
-    external = {
-      source  = "hashicorp/external"
-      version = "~> 2.3"
-    }
     local = {
       source  = "hashicorp/local"
       version = "~> 2.5"
@@ -139,19 +135,8 @@ resource "null_resource" "server_init" {
       "sudo systemctl enable --now rke2-server.service",
       # Wait for the API server to be ready before we hand out the token.
       "for i in $(seq 1 60); do sudo test -s /var/lib/rancher/rke2/server/node-token && break; sleep 5; done",
-      "sudo cp /var/lib/rancher/rke2/server/node-token /tmp/node-token && sudo chmod 0644 /tmp/node-token",
     ]
   }
-}
-
-# ---- Capture the join token (host-key checked) -----------------------------
-
-data "external" "node_token" {
-  depends_on = [null_resource.server_init]
-  program = [
-    "bash", "-c",
-    "ssh -i ${var.ssh_private_key_path} ${local.ssh_opts} ${var.ssh_user}@${local.init_node} 'sudo cat /tmp/node-token' | jq -Rn '{token: input}'",
-  ]
 }
 
 # ---- Additional control plane nodes (HA) -----------------------------------
@@ -163,25 +148,21 @@ resource "null_resource" "server_join" {
     version = var.kubernetes_version
   }
 
-  connection {
-    type        = "ssh"
-    host        = each.key
-    user        = var.ssh_user
-    private_key = file(var.ssh_private_key_path)
+  provisioner "local-exec" {
+    interpreter = ["bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      TOKEN="$(ssh -i ${var.ssh_private_key_path} ${local.ssh_opts} ${var.ssh_user}@${local.init_node} 'sudo cat /var/lib/rancher/rke2/server/node-token')"
+      ssh -i ${var.ssh_private_key_path} ${local.ssh_opts} ${var.ssh_user}@${each.key} 'sudo mkdir -p /etc/rancher/rke2'
+      echo ${base64encode(local.server_config_yaml)} | base64 -d | ssh -i ${var.ssh_private_key_path} ${local.ssh_opts} ${var.ssh_user}@${each.key} 'sudo tee /etc/rancher/rke2/config.yaml >/dev/null'
+      printf 'server: https://${local.init_node}:9345\n' | ssh -i ${var.ssh_private_key_path} ${local.ssh_opts} ${var.ssh_user}@${each.key} 'sudo tee -a /etc/rancher/rke2/config.yaml >/dev/null'
+      printf 'token: %s\n' "$TOKEN" | ssh -i ${var.ssh_private_key_path} ${local.ssh_opts} ${var.ssh_user}@${each.key} 'sudo tee -a /etc/rancher/rke2/config.yaml >/dev/null'
+      ssh -i ${var.ssh_private_key_path} ${local.ssh_opts} ${var.ssh_user}@${each.key} "curl -sfL https://get.rke2.io | sudo INSTALL_RKE2_VERSION=${var.kubernetes_version} INSTALL_RKE2_TYPE=server sh -"
+      ssh -i ${var.ssh_private_key_path} ${local.ssh_opts} ${var.ssh_user}@${each.key} 'sudo systemctl enable --now rke2-server.service'
+    EOT
   }
 
-  provisioner "remote-exec" {
-    inline = [
-      "sudo mkdir -p /etc/rancher/rke2",
-      "echo ${base64encode(local.server_config_yaml)} | base64 -d | sudo tee /etc/rancher/rke2/config.yaml >/dev/null",
-      "echo 'server: https://${local.init_node}:9345' | sudo tee -a /etc/rancher/rke2/config.yaml >/dev/null",
-      "echo \"token: ${data.external.node_token.result.token}\" | sudo tee -a /etc/rancher/rke2/config.yaml >/dev/null",
-      "curl -sfL https://get.rke2.io | sudo INSTALL_RKE2_VERSION=${var.kubernetes_version} INSTALL_RKE2_TYPE=server sh -",
-      "sudo systemctl enable --now rke2-server.service",
-    ]
-  }
-
-  depends_on = [data.external.node_token]
+  depends_on = [null_resource.server_init]
 }
 
 # ---- Worker nodes ----------------------------------------------------------
@@ -193,24 +174,20 @@ resource "null_resource" "agent" {
     version = var.kubernetes_version
   }
 
-  connection {
-    type        = "ssh"
-    host        = each.key
-    user        = var.ssh_user
-    private_key = file(var.ssh_private_key_path)
+  provisioner "local-exec" {
+    interpreter = ["bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      TOKEN="$(ssh -i ${var.ssh_private_key_path} ${local.ssh_opts} ${var.ssh_user}@${local.init_node} 'sudo cat /var/lib/rancher/rke2/server/node-token')"
+      ssh -i ${var.ssh_private_key_path} ${local.ssh_opts} ${var.ssh_user}@${each.key} 'sudo mkdir -p /etc/rancher/rke2'
+      printf 'server: https://${local.init_node}:9345\n' | ssh -i ${var.ssh_private_key_path} ${local.ssh_opts} ${var.ssh_user}@${each.key} 'sudo tee /etc/rancher/rke2/config.yaml >/dev/null'
+      printf 'token: %s\n' "$TOKEN" | ssh -i ${var.ssh_private_key_path} ${local.ssh_opts} ${var.ssh_user}@${each.key} 'sudo tee -a /etc/rancher/rke2/config.yaml >/dev/null'
+      ssh -i ${var.ssh_private_key_path} ${local.ssh_opts} ${var.ssh_user}@${each.key} "curl -sfL https://get.rke2.io | sudo INSTALL_RKE2_VERSION=${var.kubernetes_version} INSTALL_RKE2_TYPE=agent sh -"
+      ssh -i ${var.ssh_private_key_path} ${local.ssh_opts} ${var.ssh_user}@${each.key} 'sudo systemctl enable --now rke2-agent.service'
+    EOT
   }
 
-  provisioner "remote-exec" {
-    inline = [
-      "sudo mkdir -p /etc/rancher/rke2",
-      "echo 'server: https://${local.init_node}:9345' | sudo tee /etc/rancher/rke2/config.yaml >/dev/null",
-      "echo \"token: ${data.external.node_token.result.token}\" | sudo tee -a /etc/rancher/rke2/config.yaml >/dev/null",
-      "curl -sfL https://get.rke2.io | sudo INSTALL_RKE2_VERSION=${var.kubernetes_version} INSTALL_RKE2_TYPE=agent sh -",
-      "sudo systemctl enable --now rke2-agent.service",
-    ]
-  }
-
-  depends_on = [data.external.node_token]
+  depends_on = [null_resource.server_init]
 }
 
 # ---- Pull the kubeconfig locally for the providers below -------------------

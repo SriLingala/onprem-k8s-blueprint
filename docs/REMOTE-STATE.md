@@ -57,6 +57,10 @@ terraform {
 
 - **Encryption at rest.** Backend store must be encrypted; Terraform state
   contains secrets in plain text (kubeconfigs, tokens, generated passwords).
+- **Cluster bootstrap material.** These modules avoid storing RKE2 / k3s join
+  tokens through Terraform data sources, but state can still expose sensitive
+  provider data, Helm values, and operational metadata. Treat state readers as
+  privileged cluster operators.
 - **Access control.** RBAC the state path so only the platform team can read.
 - **Locking.** Use the backend's native locking — concurrent applies on the
   same workspace will corrupt state.

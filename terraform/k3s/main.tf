@@ -16,10 +16,6 @@ terraform {
       source  = "hashicorp/null"
       version = "~> 3.2"
     }
-    external = {
-      source  = "hashicorp/external"
-      version = "~> 2.3"
-    }
     local = {
       source  = "hashicorp/local"
       version = "~> 2.5"
@@ -60,7 +56,7 @@ variable "ssh_private_key_path" {
 }
 
 variable "known_hosts_path" {
-  description = "Path to an SSH known_hosts file containing the server's host key fingerprint. Required so the token capture step never silently trusts an unknown host."
+  description = "Path to an SSH known_hosts file containing the server and agent host key fingerprints. Required so bootstrap SSH never silently trusts an unknown host."
   type        = string
 }
 
@@ -105,32 +101,8 @@ resource "null_resource" "k3s_server" {
   provisioner "remote-exec" {
     inline = [
       "curl -sfL https://get.k3s.io | ${local.k3s_install_env}sh -s - server --cluster-init --disable=traefik --write-kubeconfig-mode 0640",
-      "sudo cat /var/lib/rancher/k3s/server/node-token | sudo tee /tmp/node-token >/dev/null",
-      "sudo chmod 0644 /tmp/node-token",
     ]
   }
-}
-
-# ---- Capture the join token (host-key checked) -----------------------------
-
-# We require an explicit known_hosts file so the token exchange cannot be
-# silently MITM'd. `StrictHostKeyChecking=yes` refuses to connect when the
-# server fingerprint is missing from known_hosts. The token itself is
-# treated as sensitive everywhere it flows.
-data "external" "node_token" {
-  depends_on = [null_resource.k3s_server]
-  program = [
-    "bash", "-c",
-    join(" ", [
-      "ssh",
-      "-i ${var.ssh_private_key_path}",
-      "-o StrictHostKeyChecking=yes",
-      "-o UserKnownHostsFile=${var.known_hosts_path}",
-      "${var.ssh_user}@${var.server_address}",
-      "'sudo cat /tmp/node-token'",
-      "| jq -Rn '{token: input}'",
-    ]),
-  ]
 }
 
 # ---- Install k3s agents ---------------------------------------------------
@@ -142,20 +114,16 @@ resource "null_resource" "k3s_agents" {
     k3s_version = var.k3s_version
   }
 
-  connection {
-    type        = "ssh"
-    host        = each.key
-    user        = var.ssh_user
-    private_key = file(var.ssh_private_key_path)
+  provisioner "local-exec" {
+    interpreter = ["bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      TOKEN="$(ssh -i ${var.ssh_private_key_path} -o StrictHostKeyChecking=yes -o UserKnownHostsFile=${var.known_hosts_path} ${var.ssh_user}@${var.server_address} 'sudo cat /var/lib/rancher/k3s/server/node-token')"
+      printf '%s\n' "$TOKEN" | ssh -i ${var.ssh_private_key_path} -o StrictHostKeyChecking=yes -o UserKnownHostsFile=${var.known_hosts_path} ${var.ssh_user}@${each.key} "read -r TOKEN; curl -sfL https://get.k3s.io | ${local.k3s_install_env}K3S_URL=https://${var.server_address}:6443 K3S_TOKEN=\$TOKEN sh -"
+    EOT
   }
 
-  provisioner "remote-exec" {
-    inline = [
-      "curl -sfL https://get.k3s.io | ${local.k3s_install_env}K3S_URL=https://${var.server_address}:6443 K3S_TOKEN=${data.external.node_token.result.token} sh -",
-    ]
-  }
-
-  depends_on = [data.external.node_token]
+  depends_on = [null_resource.k3s_server]
 }
 
 # ---- Pull the kubeconfig locally for the providers below -------------------
@@ -175,6 +143,7 @@ resource "null_resource" "kubeconfig" {
       "'sudo cat /etc/rancher/k3s/k3s.yaml'",
       "| sed 's/127.0.0.1/${var.server_address}/'",
       "> ${local.kubeconfig_path}",
+      "&& chmod 0600 ${local.kubeconfig_path}",
     ])
   }
 }

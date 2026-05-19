@@ -28,23 +28,7 @@ work in [aks-platform](https://github.com/SriLingala/aks-platform).
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│ Central control plane (Rancher Manager or Argo CD ApplicationSet)│
-└──────────────────────────────────────────────────────────────────┘
-        │                          │                          │
-        ▼                          ▼                          ▼
-┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
-│ Datacentre A    │      │ Datacentre B    │      │ Edge / Factory  │
-│ RKE2 cluster    │      │ RKE2 cluster    │      │ k3s cluster     │
-│  - 3 control    │      │  - 3 control    │      │  - 1 server     │
-│  - N workers    │      │  - N workers    │      │  - N agents     │
-└─────────────────┘      └─────────────────┘      └─────────────────┘
-        │                          │                          │
-        └──────── shared platform add-ons via GitOps ─────────┘
-                  Argo CD. Prometheus. Loki. cert-manager.
-                  Ingress NGINX. OPA Gatekeeper.
-```
+![On-prem Kubernetes blueprint architecture](docs/architecture.svg)
 
 ## Repository layout
 
@@ -91,9 +75,9 @@ is overkill:
 ```bash
 cd terraform/k3s
 
-# Capture the server's SSH host key so the token-capture step verifies it
-# instead of trusting on first use.
-ssh-keyscan <server-ip> > ./known_hosts.edge
+# Capture every node's SSH host key so bootstrap SSH verifies hosts instead
+# of trusting on first use.
+for ip in <server-ip> <agent-ip-1> <agent-ip-2>; do ssh-keyscan "$ip"; done > ./known_hosts.edge
 
 cp edge.tfvars terraform.tfvars   # then edit
 terraform init
@@ -138,6 +122,15 @@ real workload lands:
   restore drill cadence the platform team owns.
 - [docs/AIR-GAPPED.md](docs/AIR-GAPPED.md) — registry mirrors, chart
   rendering, offline RKE2 install.
+
+### State and secret handling
+
+The Terraform modules bootstrap clusters over SSH, then pull join tokens and
+kubeconfigs so Helm can install the platform baseline. Treat Terraform state
+as sensitive: even when bootstrap tokens are kept out of data sources, state
+can still contain kubeconfigs, generated passwords, Helm values, and provider
+data. Use an encrypted remote backend with locking, strict RBAC, and versioned
+backups before running this outside a lab.
 
 ## Status
 
